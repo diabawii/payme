@@ -17,7 +17,9 @@ use tower_http::services::ServeDir;
 
 use crate::openapi::ApiDoc;
 use config::Config;
-use handlers::{auth, budget, export, fixed_expenses, income, items, months, savings, stats};
+use handlers::{
+    auth, budget, export, fixed_expenses, health, income, items, months, savings, stats,
+};
 use middleware::auth::auth_middleware;
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
@@ -35,6 +37,7 @@ async fn main() {
         .expect("Failed to run migrations");
 
     let public_routes = Router::new()
+        .route("/health", get(health::health_check))
         .route("/api/auth/register", post(auth::register))
         .route("/api/auth/login", post(auth::login));
 
@@ -119,10 +122,38 @@ async fn main() {
         .with_state(pool);
 
     let addr = format!("0.0.0.0:{}", config.port);
-    println!("Server running on {}", addr);
+    tracing::info!("Server running on {}", addr);
 
     let listener = tokio::net::TcpListener::bind(&addr)
         .await
         .expect("Failed to bind to address");
-    axum::serve(listener, app).await.expect("Server error");
+
+    axum::serve(listener, app)
+        .with_graceful_shutdown(shutdown_signal())
+        .await
+        .expect("Server error");
+}
+
+async fn shutdown_signal() {
+    let ctrl_c = async {
+        tokio::signal::ctrl_c()
+            .await
+            .expect("Failed to install Ctrl+C handler");
+    };
+
+    #[cfg(unix)]
+    let terminate = async {
+        tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+            .expect("Failed to install SIGTERM handler")
+            .recv()
+            .await;
+    };
+
+    #[cfg(not(unix))]
+    let terminate = std::future::pending::<()>();
+
+    tokio::select! {
+        _ = ctrl_c => tracing::info!("Received Ctrl+C, shutting down"),
+        _ = terminate => tracing::info!("Received SIGTERM, shutting down"),
+    }
 }
