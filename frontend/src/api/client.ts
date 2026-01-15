@@ -53,6 +53,11 @@ export const api = {
         method: "DELETE",
         body: JSON.stringify({ password }),
       }),
+    resetPassword: (username: string, newPassword: string) =>
+      request<{ message: string }>("/auth/reset-password", {
+        method: "POST",
+        body: JSON.stringify({ username, new_password: newPassword }),
+      }),
   },
 
   months: {
