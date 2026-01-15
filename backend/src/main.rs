@@ -66,7 +66,8 @@ async fn main() {
     let public_routes = Router::new()
         .route("/health", get(health::health_check))
         .route("/api/auth/register", post(auth::register))
-        .route("/api/auth/login", post(auth::login));
+        .route("/api/auth/login", post(auth::login))
+        .route("/api/auth/reset-password", post(auth::reset_password));
 
     let protected_routes = Router::new()
         .route("/api/auth/logout", post(auth::logout))

@@ -359,3 +359,57 @@ pub async fn clear_all_data(
         Json(serde_json::json!({"message": "All data cleared"})),
     ))
 }
+
+#[derive(Deserialize, ToSchema, Validate)]
+pub struct ResetPasswordRequest {
+    #[validate(length(min = 3, max = 32))]
+    pub username: String,
+    #[validate(length(min = 6, max = 128))]
+    pub new_password: String,
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/auth/reset-password",
+    request_body = ResetPasswordRequest,
+    responses(
+        (status = 200, description = "Password reset successfully"),
+        (status = 404, description = "User not found"),
+        (status = 500, description = "Internal server error")
+    ),
+    tag = "Auth",
+    summary = "Reset password by username",
+    description = "Resets a user's password. For self-hosted use only."
+)]
+pub async fn reset_password(
+    State(pool): State<SqlitePool>,
+    Json(payload): Json<ResetPasswordRequest>,
+) -> Result<impl IntoResponse, PaymeError> {
+    payload.validate()?;
+
+    let user: Option<(i64,)> = sqlx::query_as("SELECT id FROM users WHERE username = ?")
+        .bind(&payload.username)
+        .fetch_optional(&pool)
+        .await?;
+
+    if user.is_none() {
+        return Err(PaymeError::NotFound);
+    }
+
+    let salt = SaltString::generate(&mut OsRng);
+    let argon2 = Argon2::default();
+    let new_password_hash = argon2
+        .hash_password(payload.new_password.as_bytes(), &salt)
+        .map_err(|e| PaymeError::Internal(e.to_string()))?
+        .to_string();
+
+    sqlx::query("UPDATE users SET password_hash = ? WHERE username = ?")
+        .bind(&new_password_hash)
+        .bind(&payload.username)
+        .execute(&pool)
+        .await?;
+
+    Ok(Json(
+        serde_json::json!({"message": "Password reset successfully"}),
+    ))
+}
